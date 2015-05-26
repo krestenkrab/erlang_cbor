@@ -30,6 +30,7 @@
 
 -define(GREGORIAN_BASE, 62167219200).
 
+%% erlang tags for known terms
 -define(TERM_TAG, 99).
 -define(ATOM_TAG, 100).
 -define(TUPLE_TAG, 101).
@@ -101,7 +102,7 @@ decode_head(<<Major:3, 31:5, Rest/binary>>) ->
 
 
 tagged(0, String) ->
-    case rfc3339_decode2(String) of
+    case rfc3339_decode(String) of
         {ok, {Date, {TH,TM,TS,_}, Offset}} ->
             BaseSecs = calendar:datetime_to_gregorian_seconds({Date, {TH,TM,TS}}),
             GregSecs = case Offset of
@@ -138,7 +139,7 @@ tagged(?ATOM_TAG, A) when is_list(A) ->
     catch
         _:badarg -> A
     end;
-tagged(?MAP_TAG, M) when is_list(M) ->
+tagged(?MAP_TAG, {M}) when is_list(M) ->
     try
         maps:from_list(M)
     catch
@@ -208,14 +209,14 @@ decode_list(N, Rest, Acc) ->
 decode_map(indefinite, Rest, Acc) ->
     case decode(Rest) of
         {break, Rest2} ->
-            {lists:reverse(Acc), Rest2};
+            {{lists:reverse(Acc)}, Rest2};
         {Key, Rest2} ->
             { Value, Rest3 } = decode(Rest2),
             decode_map(indefinite, Rest3, [{Key, Value}|Acc])
     end;
 
 decode_map(0, Rest, Acc) ->
-    { lists:reverse(Acc), Rest };
+    {{lists:reverse(Acc)}, Rest };
 decode_map(N, Rest, Acc) ->
     { Key, Rest2 }   = decode(Rest),
     { Value, Rest3 } = decode(Rest2),
@@ -231,38 +232,10 @@ decode_ieee745(<<Sign:1, Exp:5, Frac:10>>) ->
     <<Float32:32/float>> = <<Sign:1, Exp:8, Frac:10, 0:13>>,
     Float32.
 
--define(RE, {re_pattern,13,0,0,
-                <<69,82,67,80,119,2,0,0,16,0,0,0,65,0,0,0,255,255,255,255,
-                  255,255,255,255,0,0,45,0,0,0,13,0,0,0,64,0,0,0,0,0,0,0,0,0,
-                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,125,2,51,25,127,0,
-                  43,0,1,106,0,0,0,0,0,0,255,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                  0,0,0,0,0,0,0,0,0,104,0,3,0,4,114,0,43,29,45,127,0,43,0,2,
-                  106,0,0,0,0,0,0,255,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                  0,0,0,0,0,0,104,0,1,0,2,114,0,43,29,45,127,0,43,0,3,106,0,
-                  0,0,0,0,0,255,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                  0,0,0,104,0,1,0,2,114,0,43,140,127,0,225,0,4,106,0,0,0,0,0,
-                  0,0,0,0,0,16,0,0,0,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                  127,0,43,0,5,106,0,0,0,0,0,0,255,3,0,0,0,0,0,0,0,0,0,0,0,0,
-                  0,0,0,0,0,0,0,0,0,0,0,0,104,0,1,0,2,114,0,43,29,58,127,0,
-                  43,0,6,106,0,0,0,0,0,0,255,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                  0,0,0,0,0,0,0,0,0,104,0,1,0,2,114,0,43,29,58,127,0,43,0,7,
-                  106,0,0,0,0,0,0,255,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                  0,0,0,0,0,0,104,0,1,0,2,114,0,43,140,127,0,41,0,8,29,46,
-                  106,0,0,0,0,0,0,255,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                  0,0,0,0,0,0,100,114,0,41,114,0,225,140,127,0,184,0,9,127,0,
-                  38,0,10,106,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,4,0,0,0,0,0,0,0,
-                  0,0,0,0,0,0,0,0,0,113,0,138,127,0,38,0,11,106,0,0,0,0,0,40,
-                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,114,0,
-                  38,127,0,43,0,12,106,0,0,0,0,0,0,255,3,0,0,0,0,0,0,0,0,0,0,
-                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,104,0,1,0,2,114,0,43,29,58,127,
-                  0,43,0,13,106,0,0,0,0,0,0,255,3,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                  0,0,0,0,0,0,0,0,0,0,0,104,0,1,0,2,114,0,43,114,0,176,114,0,
-                 184,114,2,51,0>>}).
-
-rfc3339_decode2(String) ->
-%    {ok, RE} = re:compile("^([0-9]{3,4})-([0-9]{1,2})-([0-9]{1,2})"
-%                          ++ "([Tt]([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2})(\\.[0-9]+)?)?"
-%                          ++ "(([Zz]|([+-])([0-9]{1,2}):([0-9]{1,2})))?"),
+rfc3339_decode(String) ->
+    {ok, RE} = re:compile("^([0-9]{3,4})-([0-9]{1,2})-([0-9]{1,2})"
+                          ++ "([Tt]([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2})(\\.[0-9]+)?)?"
+                          ++ "(([Zz]|([+-])([0-9]{1,2}):([0-9]{1,2})))?"),
 
     case re:run(String, ?RE, [{capture, all_but_first, list}]) of
         {match, [Ye,Mo,Da|Rest]} ->
@@ -325,7 +298,7 @@ encode(B) when is_binary(B) ->
     encode_bytestring(B);
 encode(F) when is_float(F) ->
     <<7:3, 27:5, F:64/float>>;
-encode([{_,_}|_]=L) ->
+encode({L}) when is_list(L) ->
     encode_map(L);
 encode(M) when is_map(M) ->
     [ encode_head(6, ?MAP_TAG) | encode_map( maps:to_list(M) ) ];
@@ -458,6 +431,8 @@ decode_binary([$ |Rest], Acc) ->
 decode_binary([$0, $b, B7, B6, B5, $_, B4, B3, B2, B1, B0 | Rest], Acc) ->
     Byte = list_to_integer([B7,B6,B5,B4,B3,B2,B1,B0], 2),
     decode_binary(Rest,  [Byte | Acc]);
+decode_binary([$$, A|Rest], Acc) ->
+    decode_binary(Rest, [A|Acc]);
 decode_binary([$0, $x, H,L|Rest], Acc) ->
     decode_binary(Rest, [list_to_integer([H,L], 16) | Acc]);
 decode_binary([H,L|Rest], Acc) ->
@@ -474,7 +449,7 @@ bin_test() ->
 decode_test() ->
 
     %% decimal fraciton 273.15
-    {273.15000000000003, <<>>} = decode( to_bin("c4 82 21 19 6a b3")),
+    {273.15000000000003, <<>>} = decode( to_bin("c4 8221196a b3")),
 
     %% byte string concatenation
     S = to_bin("0xaabbccdd 0xeeff99"),
@@ -486,8 +461,8 @@ decode_test() ->
     {[1,[2,3],[4,5]],<<>>} = decode( to_bin ( "0x83019f0203ff820405" )),
 
     %% indefinite length map
-    {[{"Fun",true},{"Amt",-2}],<<>>}
-        = decode( to_bin( "0xbf6346756ef563416d7421ff" )),
+    {{[{"Fun",true},{"Amt",-2}]},<<>>}
+        = decode( to_bin( "0xbf 63$F$u$n f5  63$A$m$t 21  ff" )),
 
     %% date/time
     {{{1753,9,7},{1,0,0}}, <<>>} =
