@@ -68,22 +68,12 @@ decode_head(<<7:3, N:5, Rest/binary>>) when N < 24 ->
     {simple, N, Rest};
 decode_head(<<7:3, 24:5, N:8, Rest/binary>>) ->
     {simple, N, Rest};
-decode_head(<<7:3, 25:5, N:16/binary, Rest/binary>>) ->
+decode_head(<<7:3, 25:5, N:2/binary, Rest/binary>>) ->
     {float, decode_ieee745(N), Rest};
-decode_head(<<7:3, 26:5, N:32/float, Rest/binary>>) ->
-    {float, N, Rest};
-decode_head(<<7:3, 26:5, Sign:1, 16#ff:8, N:23, Rest/binary>>) ->
-    case N of
-        0 ->
-            case Sign of
-                0 -> {float, pos_infinity, Rest};
-                1 -> {float, neg_infinity, Rest}
-            end;
-        _ ->
-            {float, 'NaN', Rest}
-    end;
-decode_head(<<7:3, 27:5, N:64/float, Rest/binary>>) ->
-    {float, N, Rest};
+decode_head(<<7:3, 26:5, N:4/binary, Rest/binary>>) ->
+    {float, decode_ieee745(N), Rest};
+decode_head(<<7:3, 27:5, N:8/binary, Rest/binary>>) ->
+    {float, decode_ieee745(N), Rest};
 decode_head(<<7:3, 31:5, Rest/binary>>) ->
     {break, Rest};
 
@@ -228,16 +218,41 @@ decode_ieee745(<<1:1, 16#1F:5, 0:10>>) ->
     'neg_infinity';
 decode_ieee745(<<_:1, 16#1F:5, _:10>>) ->
     'NaN';
-decode_ieee745(<<Sign:1, Exp:5, Frac:10>>) ->
-    <<Float32:32/float>> = <<Sign:1, Exp:8, Frac:10, 0:13>>,
-    Float32.
+decode_ieee745(<<_:1, 16#00:5, 0:10>>) ->
+    0.0;
+decode_ieee745(<<Sign:1, Exp16:5, Frac:10>>) ->
+    Exp32 = (Exp16-15)+127,
+    <<Float32:32/float>> = <<Sign:1, Exp32:8, Frac:10, 0:13 >>,
+    Float32;
+
+decode_ieee745(<<F:32/float>>) ->
+    F;
+decode_ieee745(<<0:1, 16#FF:8, 0:23>>) ->
+    'pos_infinity';
+decode_ieee745(<<1:1, 16#FF:8, 0:23>>) ->
+    'neg_infinity';
+decode_ieee745(<<_:1, 16#FF:8, _:23>>) ->
+    'NaN';
+decode_ieee745(<<_:1, 16#00:8, 0:23>>) ->
+    0.0;
+
+decode_ieee745(<<F:64/float>>) ->
+    F;
+decode_ieee745(<<0:1, 16#7FF:11, 0:52>>) ->
+    'pos_infinity';
+decode_ieee745(<<1:1, 16#7FF:11, 0:52>>) ->
+    'neg_infinity';
+decode_ieee745(<<_:1, 16#7FF:11, _:52>>) ->
+    'NaN';
+decode_ieee745(<<_:1, 16#000:11, 0:52>>) ->
+    0.0.
 
 rfc3339_decode(String) ->
     {ok, RE} = re:compile("^([0-9]{3,4})-([0-9]{1,2})-([0-9]{1,2})"
                           ++ "([Tt]([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2})(\\.[0-9]+)?)?"
                           ++ "(([Zz]|([+-])([0-9]{1,2}):([0-9]{1,2})))?"),
 
-    case re:run(String, ?RE, [{capture, all_but_first, list}]) of
+    case re:run(String, RE, [{capture, all_but_first, list}]) of
         {match, [Ye,Mo,Da|Rest]} ->
             Year  = case length(Ye) of
                         3 -> 1900 + list_to_integer(Ye);
