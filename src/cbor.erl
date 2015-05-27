@@ -210,7 +210,7 @@ decode_map(0, Rest, Acc) ->
 decode_map(N, Rest, Acc) ->
     { Key, Rest2 }   = decode(Rest),
     { Value, Rest3 } = decode(Rest2),
-    decode_list(N-1, Rest3, [{Key,Value}|Acc]).
+    decode_map(N-1, Rest3, [{Key,Value}|Acc]).
 
 decode_ieee745(<<0:1, 16#1F:5, 0:10>>) ->
     'pos_infinity';
@@ -436,7 +436,7 @@ count_big_bits(N) when N >= 0 ->
 
 %% utility function to generate binary input
 
-to_bin(String) ->
+hex_bin(String) ->
     List = decode_binary(String, []),
     iolist_to_binary( List ).
 decode_binary([], Acc) ->
@@ -455,29 +455,29 @@ decode_binary([H,L|Rest], Acc) ->
 
 bin_test() ->
 
-    <<16#f8, 16#01>> = to_bin("f801"),
-    <<16#f8, 16#01>> = to_bin("0xf8 01"),
-    <<16#00>> = to_bin("0b000_00000"),
+    <<16#f8, 16#01>> = hex_bin("f801"),
+    <<16#f8, 16#01>> = hex_bin("0xf8 01"),
+    <<16#00>> = hex_bin("0b000_00000"),
 
     ok.
 
 decode_test() ->
 
     %% decimal fraciton 273.15
-    {273.15000000000003, <<>>} = decode( to_bin("c4 8221196a b3")),
+    {273.15000000000003, <<>>} = decode( hex_bin("c4 8221196a b3")),
 
     %% byte string concatenation
-    S = to_bin("0xaabbccdd 0xeeff99"),
-    B = to_bin("0b010_11111 0b010_00100 0xaabbccdd 0b010_00011 0xeeff99 0b111_11111"),
+    S = hex_bin("0xaabbccdd 0xeeff99"),
+    B = hex_bin("0b010_11111 0b010_00100 0xaabbccdd 0b010_00011 0xeeff99 0b111_11111"),
     {S, <<>>} = decode(B),
 
     %% indefinete length arrays
-    {[1,[2,3],[4,5]],<<>>} = decode( to_bin ( "0x83018202039f0405ff" )),
-    {[1,[2,3],[4,5]],<<>>} = decode( to_bin ( "0x83019f0203ff820405" )),
+    {[1,[2,3],[4,5]],<<>>} = decode( hex_bin( "0x83018202039f0405ff" )),
+    {[1,[2,3],[4,5]],<<>>} = decode( hex_bin( "0x83019f0203ff820405" )),
 
     %% indefinite length map
     {{[{"Fun",true},{"Amt",-2}]},<<>>}
-        = decode( to_bin( "0xbf 63$F$u$n f5  63$A$m$t 21  ff" )),
+        = decode( hex_bin( "0xbf 63$F$u$n f5  63$A$m$t 21  ff" )),
 
     %% date/time
     {{{1753,9,7},{1,0,0}}, <<>>} =
@@ -485,13 +485,13 @@ decode_test() ->
 
     %% test that we handle Self-Describe CBOR
     { 0, <<>>} =
-        decode( to_bin( "0xd9d9f7 00" )),
+        decode( hex_bin( "0xd9d9f7 00" )),
 
     ok.
 
 -define(assertCoding(String, Term),
-        ?assertEqual( to_bin(String), iolist_to_binary( encode(Term) )),
-        ?assertEqual( {Term,<<>>}, decode( to_bin(String) ) )).
+        ?assertEqual( hex_bin(String), iolist_to_binary( encode(Term) )),
+        ?assertEqual( {Term,<<>>}, decode( hex_bin(String) ) )).
 
 basic(Term) ->
     ?assertEqual({Term,<<>>}, decode(encode(Term))).
@@ -523,5 +523,121 @@ code_test() ->
     basic( [1, 2, 2.3, "xx"] ),
 
     ok.
+
+
+decode2_test_() ->
+    Tests =
+        [
+         {0, "0x00"},
+         {1, "0x01"},
+         {10, "0x0a"},
+         {23, "0x17"},
+         {24, "0x1818"},
+         {25, "0x1819"},
+         {100, "0x1864"},
+         {1000, "0x1903e8"},
+         {1000000, "0x1a000f4240"},
+         {1000000000000, "0x1b000000e8d4a51000"},
+
+         {18446744073709551615, "0x1bffffffffffffffff"},
+         {18446744073709551616, "0xc249010000000000000000"},
+         {-18446744073709551616, "0x3bffffffffffffffff"},
+         {-18446744073709551617, "0xc349010000000000000000"},
+
+         {-1, "0x20"},
+         {-10, "0x29"},
+         {-100, "0x3863"},
+         {-1000, "0x3903e7"},
+
+         {0.0,  "0xf90000"},
+         {-0.0, "0xf98000"},
+
+         {1.0, "0xf93c00"},
+
+         {1.1, "0xfb3ff199999999999a"},
+         {1.5, "0xf93e00"},
+
+         {65504.0, "0xf97bff"},
+
+         {100000.0, "0xfa47c35000"},
+         {3.4028234663852886e+38, "0xfa7f7fffff"},
+
+         {1.0e300, "0xfb7e37e43c8800759c"},
+
+         % we don't handle subnormal numbers
+         %{5.960464477539063e-8, "0xf90001"},
+         {0.00006103515625, "0xf90400"},
+
+         {-4.0, "0xf9c400"},
+         {-4.1, "0xfbc010666666666666"},
+         {'pos_infinity', "0xf97c00"},
+         {'NaN', "0xf97e00"},
+         {'neg_infinity', "0xf9fc00"},
+         {'pos_infinity', "0xfa7f800000"},
+         {'NaN', "0xfa7fc00000"},
+         {'neg_infinity', "0xfaff800000"},
+         {'pos_infinity', "0xfb7ff0000000000000"},
+         {'NaN', "0xfb7ff8000000000000"},
+         {'neg_infinity', "0xfbfff0000000000000"},
+         {false, "0xf4"},
+         {true, "0xf5"},
+         {null, "0xf6"},
+         {undefined, "0xf7"},
+
+         {{simple, 16}, "0xf0"},
+         {{simple, 24}, "0xf818"},
+         {{simple, 255}, "0xf8ff"},
+         {new_date(1363896240000), "0xc074323031332d30332d32315432303a30343a30305a"},
+         {new_date(1363896240000), "0xc1 1a514b67b0"},
+         {new_date(1363896240500), "0xc1 fb 41d452d9ec200000"},
+
+         %% {"23(h"01020304")", "0xd74401020304"},
+         %% {"24(h"6449455446")", "0xd818456449455446"},
+
+         {"http://www.example.com", "0xd82076687474703a2f2f7777772e6578616d706c652e636f6d"},
+         {<<>>, "0x40"},
+         {hex_bin("01020304"), "0x4401020304"},
+         {"", "0x60"},
+         {"a", "0x6161"},
+         {"IETF", "0x6449455446"},
+         {"\"\\", "0x62225c"},
+         {[16#00fc], "0x62c3bc"},
+         {[16#6c34], "0x63e6b0b4"},
+         {[16#10151], "0x64f0908591"},
+         {[], "0x80"},
+         {[1, 2, 3], "0x83010203"},
+         {[1, [2, 3], [4, 5]], "0x8301820203820405"},
+         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25], "0x98190102030405060708090a0b0c0d0e0f101112131415161718181819"},
+         {{[]}, "0xa0"},
+         {{[]}, "0xbfff"},
+         {{[{1, 2}, {3, 4}]}, "0xa2  01 02  03 04"},
+         {{[{"a", 1}, {"b", [2, 3]}]}, "0xa26161016162820203"},
+         {["a", {[{"b", "c"}]}], "0x826161a161626163"},
+         {{[{"a", "A"}, {"b", "B"}, {"c", "C"}, {"d", "D"}, {"e", "E"}]}, "0xa56161614161626142616361436164614461656145"},
+         {hex_bin("0102030405"), "0x5f42010243030405ff"},
+         {"streaming", "0x7f657374726561646d696e67ff"},
+         {[new_date(1363896240000)], "0x9fd87fc07f6a323031332d30332d323161546832303a30343a3030615affff"},
+         {[], "0x9fff"},
+         {[1, [2, 3], [4, 5]], "0x9f018202039f0405ffff"},
+         {[1, [2, 3], [4, 5]], "0x9f01820203820405ff"},
+         {[1, [2, 3], [4, 5]], "0x83018202039f0405ff"},
+         {[1, [2, 3], [4, 5]], "0x83019f0203ff820405"},
+         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25], "0x9f0102030405060708090a0b0c0d0e0f101112131415161718181819ff"},
+         {{[{"a", 1}, {"b", [2, 3]}]}, "0xbf61610161629f0203ffff"},
+         {["a", {[{"b","c"}]}], "0x826161bf61626163ff"}
+        ],
+
+    lists:map(fun({Term,Input}) ->
+                      fun() ->
+                         case catch decode( hex_bin(Input) ) of
+                             {Term1,<<>>} ->
+                                 ?assertEqual(Term1, Term)
+                         end
+                      end
+                 end,
+                 Tests).
+
+new_date(Millis) ->
+    calendar:gregorian_seconds_to_datetime(round(Millis / 1000) + ?GREGORIAN_BASE).
 
 -endif.
